@@ -201,7 +201,9 @@ current_frame = 0
 frame_direction = 1
 bg_frame_index = 0
 bg_frame_timer = 0
-bg_frame_delay = 5
+bg_frame_delay = 200
+idle_frame_timer = 0
+idle_frame_delay = 6
 
 # Action states
 action_state = None  # 'feeding', 'sleeping', 'falling_asleep'
@@ -399,18 +401,24 @@ while running:
         else:
             pygame.draw.rect(screen, (128,128,128), (pet_center[0]-100, pet_center[1]-100, 200, 200))
             print("Sleeping frames missing!")
-
+            
     else:
         # Idle pet animation
         if idle_frames:
-            current_frame += frame_direction
-            if current_frame >= len(idle_frames) - 1 or current_frame <= 0:
-                frame_direction *= -1
+            # Add a counter to slow down idle animation
+            idle_frame_timer += 1
+            if idle_frame_timer >= idle_frame_delay:  
+                current_frame += frame_direction
+                if current_frame >= len(idle_frames) - 1 or current_frame <= 0:
+                    frame_direction *= -1
+                idle_frame_timer = 0  # Reset timer
+            
+            # Background animation (separate timing)
             bg_frame_timer += 1
             if bg_frame_timer >= bg_frame_delay:
                 bg_frame_index = (bg_frame_index + 1) % len(background_frames)
                 bg_frame_timer = 0
-
+            
             if 0 <= current_frame < len(idle_frames):
                 frame_scaled = pygame.transform.scale(idle_frames[current_frame], (pet_width, pet_height))
                 pet_rect = frame_scaled.get_rect(center=pet_center)
@@ -420,6 +428,7 @@ while running:
             pygame.draw.rect(screen, (0,255,0), (pet_center[0]-100, pet_center[1]-100, 200, 200))
             print("Idle frames missing!")
 
+    
         # Hunger decay (only while idle on weekdays)
         if today_date.weekday() <= 3:
             hunger = max(0, hunger - HUNGER_DECAY_PER_FRAME)
