@@ -1,4 +1,5 @@
 #test    
+#test    
 
 import pygame
 import os
@@ -9,7 +10,22 @@ from datetime import datetime, timedelta
 
 pygame.init()
 pygame.mixer.init()
-screen = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
+
+# Pi-friendly display setup
+import os
+os.environ['SDL_VIDEODRIVER'] = 'fbcon'  # Use framebuffer
+os.environ['SDL_FBDEV'] = '/dev/fb0'
+
+print("Initializing display...")
+# Try fullscreen first, fallback to windowed if needed
+try:
+    screen = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
+    print("Fullscreen mode successful")
+except:
+    print("Fullscreen failed, using 800x600 window")
+    screen = pygame.display.set_mode((800, 600))
+
+print(f"Screen size: {screen.get_size()}")
 pygame.display.set_caption("Spike the SDR")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont("Arial", 24, bold=True)  # Increased size from 14 to 24, added bold=True
@@ -20,26 +36,83 @@ FRAMES_PER_SECOND = 30
 HUNGER_DECAY_PER_FRAME = 100 / (DECAY_TO_ZERO_SECONDS * FRAMES_PER_SECOND)
 
 def load_animation_frames(folder_path):
-    return [pygame.image.load(os.path.join(folder_path, f)).convert_alpha()
-            for f in sorted(os.listdir(folder_path)) if f.endswith(".png")]
+    frames = []
+    try:
+        if not os.path.exists(folder_path):
+            print(f"Warning: Folder {folder_path} does not exist!")
+            return frames
+            
+        files = [f for f in sorted(os.listdir(folder_path)) if f.endswith(".png")]
+        for f in files:
+            file_path = os.path.join(folder_path, f)
+            try:
+                # Check if file is actually an image
+                with open(file_path, 'rb') as img_file:
+                    header = img_file.read(8)
+                    if not header.startswith(b'\x89PNG\r\n\x1a\n'):
+                        print(f"Warning: {file_path} is not a valid PNG file (possibly LFS pointer)")
+                        continue
+                        
+                frame = pygame.image.load(file_path).convert_alpha()
+                frames.append(frame)
+                print(f"Successfully loaded: {file_path}")
+            except pygame.error as e:
+                print(f"Error loading {file_path}: {e}")
+            except Exception as e:
+                print(f"Unexpected error loading {file_path}: {e}")
+    except Exception as e:
+        print(f"Error accessing folder {folder_path}: {e}")
+    
+    return frames
 
-# Load animations
+# Load animations with fallbacks
 background_frames = load_animation_frames("background_frames")
+if not background_frames:
+    # Create a simple blue background as fallback
+    fallback_bg = pygame.Surface((800, 600))
+    fallback_bg.fill((50, 100, 150))
+    background_frames = [fallback_bg]
 print("Loaded backgrounds:", len(background_frames))
+
 idle_frames = load_animation_frames("pet_idle_frames")
+if not idle_frames:
+    # Create simple colored squares as fallback pet
+    for i in range(4):
+        fallback_pet = pygame.Surface((200, 200))
+        color_intensity = 100 + (i * 30)
+        fallback_pet.fill((0, color_intensity, 0))
+        idle_frames.append(fallback_pet)
 print("Loaded idle frames:", len(idle_frames))
+
 feed_frames = load_animation_frames("pet_feed_frames")
+if not feed_frames:
+    feed_frames = idle_frames.copy()  # Use idle frames as fallback
 print("Loaded feed frames:", len(feed_frames))
+
 sleeping_frames = load_animation_frames("pet_sleeping_frames")
+if not sleeping_frames:
+    sleeping_frames = idle_frames.copy()
 print("Loaded sleeping frames:", len(sleeping_frames))
+
 falling_asleep_frames = load_animation_frames("pet_falling_asleep_frames")
+if not falling_asleep_frames:
+    falling_asleep_frames = idle_frames.copy()
 print("Loaded falling asleep frames:", len(falling_asleep_frames))
 
-# Load sounds
-feed_sound = pygame.mixer.Sound("sounds/feed.wav")
-sleep_sound = pygame.mixer.Sound("sounds/sleep.wav")
-wake_sound = pygame.mixer.Sound("sounds/wake.wav")
-mail_sound = pygame.mixer.Sound("sounds/mail.wav")
+# Load sounds with error handling
+try:
+    feed_sound = pygame.mixer.Sound("sounds/feed.wav")
+    sleep_sound = pygame.mixer.Sound("sounds/sleep.wav")
+    wake_sound = pygame.mixer.Sound("sounds/wake.wav")
+    mail_sound = pygame.mixer.Sound("sounds/mail.wav")
+    print("All sounds loaded successfully")
+except Exception as e:
+    print(f"Error loading sounds: {e}")
+    # Create silent sounds as fallback
+    feed_sound = pygame.mixer.Sound(buffer=b'\x00' * 1000)
+    sleep_sound = pygame.mixer.Sound(buffer=b'\x00' * 1000)
+    wake_sound = pygame.mixer.Sound(buffer=b'\x00' * 1000)
+    mail_sound = pygame.mixer.Sound(buffer=b'\x00' * 1000)
 
 # Save/Load functions
 def save_game_data():
@@ -139,11 +212,22 @@ action_duration = {
     "sleeping": 5000
 }
 
+print("Starting main game loop...")
+frame_count = 0
 running = True
 while running:
+    frame_count += 1
+    if frame_count % 30 == 0:  # Print every 30 frames (1 second)
+        print(f"Frame {frame_count}, FPS: {clock.get_fps():.1f}")
+    
     now = datetime.now()
     screen_width, screen_height = screen.get_size()
-    print("Frame start. screen:", screen_width, screen_height)
+    
+    # Clear screen to white first (so we know if anything is rendering)
+    screen.fill((255, 255, 255))
+    
+    if frame_count < 10:  # Debug first few frames
+        print(f"Frame {frame_count}: screen size {screen_width}x{screen_height}")
         
     ui_box_width = int(screen_width * 0.22)
     ui_box_height = int(screen_height * 0.15)
@@ -207,6 +291,8 @@ while running:
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:  # Press ESC to quit
+                running = False
             if event.key == pygame.K_f and time.time() - last_feed_time > feed_cooldown:
                 feed_sound.play()
                 last_feed_time = time.time()
@@ -245,18 +331,28 @@ while running:
     if today_date.weekday() <= 3:
         if tips_sent_today < max_daily_tips and len(daily_tip_times) > tips_sent_today:
             if now >= daily_tip_times[tips_sent_today] and action_state not in ["sleeping", "falling_asleep"]:
-                mail_sound.play()
+                try:
+                    mail_sound.play()
+                except:
+                    pass  # Ignore sound errors
                 speech_override = random.choice(tips)
                 speech_timer = pygame.time.get_ticks()
                 mail_flag = True
                 tips_sent_today += 1
 
-    screen.blit(
-        pygame.transform.scale(background_frames[bg_frame_index],
-        (screen_width, screen_height)),
-         (0, 0)
-    )
-    print("Background drawn, index:", bg_frame_index)
+    # Draw background
+    try:
+        if background_frames and len(background_frames) > 0:
+            bg_surface = pygame.transform.scale(background_frames[bg_frame_index], (screen_width, screen_height))
+            screen.blit(bg_surface, (0, 0))
+        else:
+            # Fallback background - gradient blue
+            for y in range(screen_height):
+                color_val = int(50 + (y / screen_height) * 100)
+                pygame.draw.line(screen, (color_val, color_val, 255), (0, y), (screen_width, y))
+    except Exception as e:
+        print(f"Background draw error: {e}")
+        screen.fill((100, 150, 200))  # Simple blue background
     
     # Handle action animations
     if action_state == "feeding":
@@ -380,7 +476,15 @@ while running:
         bubble_y = int(screen_height * 0.25)
         screen.blit(bubble, (bubble_x, bubble_y))
 
-    pygame.display.update()
+    # Force a simple test draw to ensure screen is working
+    if frame_count < 60:  # First 2 seconds
+        test_color = (255, 0, 0) if frame_count % 60 < 30 else (0, 255, 0)
+        pygame.draw.circle(screen, test_color, (100, 100), 50)
+        pygame.draw.rect(screen, (255, 255, 0), (200, 50, 100, 100))
+        test_text = font.render(f"Frame {frame_count}", True, (0, 0, 0))
+        screen.blit(test_text, (50, 200))
+
+    pygame.display.flip()  # Use flip() instead of update() for better performance
     clock.tick(FRAMES_PER_SECOND)
 
 # Save data one final time before quitting
