@@ -1,4 +1,3 @@
-
 #test    
 #test    
 
@@ -9,47 +8,8 @@ import time
 import json
 from datetime import datetime, timedelta
 
-# GPIO imports for Raspberry Pi
-try:
-    import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
-    print("GPIO library loaded successfully")
-except ImportError:
-    GPIO_AVAILABLE = False
-    print("GPIO library not available - running without GPIO support")
-
 pygame.init()
 pygame.mixer.init()
-
-# GPIO Setup
-if GPIO_AVAILABLE:
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    
-    # Define GPIO pins for buttons
-    FEED_PIN = 17      # GPIO 17 for Feed (F key)
-    SLEEP_PIN = 27     # GPIO 27 for Sleep (S key)
-    WAKE_PIN = 22      # GPIO 22 for Wake (W key)
-    TIP_PIN = 23       # GPIO 23 for Tip (T key)
-    DEEP_SLEEP_PIN = 24  # GPIO 24 for Deep Sleep (Z key)
-    
-    # Setup GPIO pins as inputs with pull-up resistors
-    GPIO.setup(FEED_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup(SLEEP_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup(WAKE_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup(TIP_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup(DEEP_SLEEP_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    
-    # Track button states for debouncing
-    button_states = {
-        FEED_PIN: False,
-        SLEEP_PIN: False,
-        WAKE_PIN: False,
-        TIP_PIN: False,
-        DEEP_SLEEP_PIN: False
-    }
-    
-    print(f"GPIO pins configured: Feed={FEED_PIN}, Sleep={SLEEP_PIN}, Wake={WAKE_PIN}, Tip={TIP_PIN}, DeepSleep={DEEP_SLEEP_PIN}")
 
 # Pi-friendly display setup
 import os
@@ -254,23 +214,6 @@ action_duration = {
     "sleeping": 5000
 }
 
-# GPIO helper function to check button press with debouncing
-def check_gpio_button(pin):
-    """Check if a GPIO button was pressed (with debouncing)"""
-    if not GPIO_AVAILABLE:
-        return False
-    
-    current_state = GPIO.input(pin) == GPIO.LOW  # LOW when pressed (pull-up resistor)
-    
-    # Check for button press (transition from not pressed to pressed)
-    if current_state and not button_states[pin]:
-        button_states[pin] = True
-        return True
-    elif not current_state:
-        button_states[pin] = False
-    
-    return False
-
 print("Starting main game loop...")
 frame_count = 0
 running = True
@@ -345,47 +288,6 @@ while running:
     if today_date.weekday() <= 3 and time.time() - last_status_change >= status_change_interval:
         status_index = (status_index + 1) % len(status_modes)
         last_status_change = time.time()
-
-    # Check GPIO buttons (same logic as keyboard events)
-    if GPIO_AVAILABLE:
-        # Feed button (F key equivalent)
-        if check_gpio_button(FEED_PIN) and time.time() - last_feed_time > feed_cooldown:
-            feed_sound.play()
-            last_feed_time = time.time()
-            meetings_booked += 1
-            last_meeting_date = today_date
-            save_game_data()  # Save immediately when meeting is booked
-            if time.time() - last_combo_time < combo_timeout:
-                combo_counter += 1
-            else:
-                combo_counter = 1
-            last_combo_time = time.time()
-            action_state = "feeding"
-            action_start_time = pygame.time.get_ticks()
-        
-        # Sleep button (S key equivalent)
-        if check_gpio_button(SLEEP_PIN):
-            if action_state != "sleeping":
-                sleep_sound.play()
-                action_state = "falling_asleep"
-                action_start_time = pygame.time.get_ticks()
-        
-        # Deep sleep button (Z key equivalent)
-        if check_gpio_button(DEEP_SLEEP_PIN):
-            sleep_sound.play()
-            action_state = "sleeping"
-            action_start_time = pygame.time.get_ticks()
-        
-        # Wake button (W key equivalent)
-        if check_gpio_button(WAKE_PIN):
-            wake_sound.play()
-            action_state = None
-        
-        # Tip button (T key equivalent)
-        if check_gpio_button(TIP_PIN):
-            speech_override = random.choice(tips)
-            speech_timer = pygame.time.get_ticks()
-            mail_flag = False
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -593,11 +495,6 @@ while running:
 
     pygame.display.flip()  # Use flip() instead of update() for better performance
     clock.tick(FRAMES_PER_SECOND)
-
-# Cleanup GPIO on exit
-if GPIO_AVAILABLE:
-    GPIO.cleanup()
-    print("GPIO cleanup completed")
 
 # Save data one final time before quitting
 save_game_data()
